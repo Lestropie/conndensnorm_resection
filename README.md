@@ -20,6 +20,6 @@ Preprint pending
 
 1.  Command `build` populates directory `phantoms/`.
 
-2.  Command `recon` populates directory `reconstructions/`.
+2.  Command `recon` populates directory `connectomes/`.
 
 3.  Command `tabulate` generates a LaTeX table summarising the results of the demonstration.
