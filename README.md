@@ -18,7 +18,7 @@ Preprint pending
 
 ## Reproduction
 
-1.  Command `build` populates directories `phantoms/` and `rois/`.
+1.  Command `build` populates directory `phantoms/`.
 
 2.  Command `recon` populates directory `reconstructions/`.
 
