@@ -1,7 +1,9 @@
 Code for reproduction of the experiment presented in the article:
 
-Longitudinal quantification of Fibre Bundle Capacity addresses structural connectivity biases in surgical resection cohorts
-R.E. Smith, P. Pruckner, D.F. Abbott
+R.E. Smith, P. Pruckner, D.F. Abbott.
+
+Longitudinal quantification of Fibre Bundle Capacity addresses structural connectivity biases in surgical resection cohorts.
+
 Preprint pending
 
 ## Prerequisites
