@@ -1,0 +1,155 @@
+#!/usr/bin/env python3
+
+# Perform tractography reconstruction for phantoms
+#
+# For pre-op and post-op phantoms, need to perform the following reconstructions:
+# - Fixed # streamline seeds per WM voxel
+# - Fixed # streamline seeds per GM voxel
+# - Fixed # total streamlines, seeded in WM
+# - Fixed # total streamlines, seeded in GM
+# The final two are tricky:
+#   want to simulate the scenario where the same number of streamlines are generated at each time point,
+#   despite the fact that there is less total tissue post-surgically;
+#   however don't want to actually use a fixed number of streamlines,
+#   since the corresponding mechanism would place streamline seeds at random.
+# Instead, want to find a suitable # seeds per WM / GM voxel for each of the four cases
+#   so that the total number of streamlines is almost equivalent
+#   even when a fixed # streamlines per seed voxel is utilised
+#
+# Pre-op, WM seeding; voxels = 18 x 5 = 90
+# Pre-op, GM seeding; voxels = 18 x 2 = 36
+# Post-op, WM seeding; voxels = 1x5 + 5x(2x5) + 2x7 + 2x3 = 75
+# Post-op, GM seeding; voxels = 1x2 + 7x2x2 = 30
+# Lowest Common Multiple (LCM) = 900
+# Pre-op, WM seeding; seeds per voxel = 900 / 90 = 10
+# Pre-op, GM seeding; seeds per voxel = 900 / 36 = 25
+# Post-op, WM seeding, controlling total # streamlines; seeds per voxel = 900 / 75 = 12
+# Post-op, GM seeding, controlling total # streamlines; seeds per voxel = 900 / 30 = 30
+# Post-op, WM seeding, controlling # streamline seeds per voxel relative to preop; seeds per voxel = 10
+# Post-op, GM seeding, controlling # streamline seeds per voxel relative to preop; seeds per voxel = 25
+#
+# We can also infer from this that the unaffected bundle will always have 100 streamlines in the pre-op image
+# Conversely it should always have an FBC of 2
+# Therefore we could ensure to always rescale absolutely everything to a baseline of 1.0 for the unaffected bundle
+
+
+import numpy
+import pathlib
+import shutil
+import subprocess
+import sys
+from collections import namedtuple
+
+Configuration = namedtuple('configuration', 'description id session seed_tissue seeds_per_voxel')
+
+SESSIONS = ('pre', 'post')
+
+METRICS = ('nos', 'meanafd', 'sift2', 'fbc')
+
+TCKGEN_COMMON_OPTIONS = ['-algorithm', 'sd_stream', \
+                         '-seed_direction', '1,0,0',
+                         '-minlength', '1',
+                         '-step', '0.01',
+                         '-nthreads', '0', # May still be a race condition leading to one excess / deficit seed in some voxels
+#                         '-crop_at_gmwmi',
+                         '-quiet',
+                         '-force']
+
+TCKSIFT2_COMMON_OPTIONS = ['-min_iters', '20',
+                           '-quiet',
+                           '-force']
+
+TCKSAMPLE_COMMON_OPTIONS = ['-stat_tck', 'mean',
+                            '-nointerp',
+                            '-quiet',
+                            '-force']
+
+TCK2CONNECTOME_COMMON_OPTIONS = ['-vector',
+                                 '-quiet',
+                                 '-force']
+
+CONFIGURATIONS = (Configuration('Pre-op, WM seeding', 'pre_wm', 'pre', 'wm', 10),
+                  Configuration('Pre-op, GM seeding', 'pre_gm', 'pre', 'gm', 25),
+                  Configuration('Post-op, WM seeding w. fixed total # streamlines', 'post_wm_streamlines', 'post', 'wm', 12),
+                  Configuration('Post-op, GM seeding w. fixed total # streamlines', 'post_gm_streamlines', 'post', 'gm', 30),
+                  Configuration('Post-op, WM seeding w. same seeds per voxel as pre-op', 'post_wm_seeds', 'post', 'wm', 10),
+                  Configuration('Post-op, GM seeding w. same seeds per voxel as pre-op', 'post_gm_seeds', 'post', 'gm', 25))
+
+tmp_dir = pathlib.Path('tmp')
+try:
+    shutil.rmtree(tmp_dir)
+except FileNotFoundError:
+    pass
+tmp_dir.mkdir()
+out_dir = pathlib.Path('connectomes')
+try:
+    shutil.rmtree(out_dir)
+except FileNotFoundError:
+    pass
+out_dir.mkdir()
+
+for config in CONFIGURATIONS:
+    sys.stderr.write(f'Running configuration: {config.description}\n')
+    # Perform tractography reconstruction
+    fods_path = pathlib.Path('phantoms', f'{config.session}_fods.mif')
+    afdtotal_path = pathlib.Path('phantoms', f'{config.session}_afdtotal.mif')
+    mask_path = pathlib.Path('phantoms', f'{config.session}_wmseed.mif')
+    tractogram_path = tmp_dir / f'{config.id}.tck'
+    tckgen_arguments = ['tckgen',
+                        fods_path,
+#                        '-act', pathlib.Path('phantoms', f'{config.session}_5tt.mif'),
+                        '-mask', mask_path,
+                        '-seed_random_per_voxel', pathlib.Path('phantoms', f'{config.session}_{config.seed_tissue}seed.mif'), str(config.seeds_per_voxel),
+                        tractogram_path] \
+                       + TCKGEN_COMMON_OPTIONS
+    subprocess.run(tckgen_arguments)
+
+    # Run SIFT2
+    # Note that if the units of the SIFT2 weights outputs could be changed as per:
+    # https://github.com/MRtrix3/mrtrix3/pull/2922
+    # , then it would not be necessary to explicitly export the value of mu and post-multiply
+    # The code here is however written based on the current state of the public release of MRtrix3
+    weights_path = tmp_dir / f'{config.id}_weights.csv'
+    mu_path = tmp_dir / f'{config.id}_mu.csv'
+    tcksift2_arguments = ['tcksift2',
+                          tractogram_path,
+                          fods_path,
+                          weights_path,
+                          '-proc_mask', mask_path,
+                          '-out_mu', mu_path] \
+                         + TCKSIFT2_COMMON_OPTIONS
+    subprocess.run(tcksift2_arguments)
+
+    # Run tcksample
+    samples_path = tmp_dir / f'{config.id}_samples.csv'
+    tcksample_arguments = ['tcksample',
+                           tractogram_path,
+                           afdtotal_path,
+                           samples_path] \
+                          + TCKSAMPLE_COMMON_OPTIONS
+    subprocess.run(tcksample_arguments)
+
+    # Run connectome construction, with and without SIFT2
+    # Note that initially, the SIFT2 results will not be suitably scaled
+    labels_path = pathlib.Path('phantoms', f'{config.session}_labels.mif')
+    for metric in METRICS:
+        connectome_path = tmp_dir / f'{config.id}_{metric}.csv'
+        tck2connectome_arguments = ['tck2connectome',
+                                    tractogram_path,
+                                    labels_path,
+                                    connectome_path] \
+                                   + TCK2CONNECTOME_COMMON_OPTIONS
+        if metric in ('sift2', 'fbc'):
+            tck2connectome_arguments += ['-tck_weights_in', weights_path]
+        elif metric == 'meanafd':
+            tck2connectome_arguments += ['-scale_file', samples_path,
+                                         '-stat_edge', 'mean']
+        subprocess.run(tck2connectome_arguments)
+        data = numpy.loadtxt(connectome_path, delimiter=',')
+        if metric in ('nos', 'sift2'):
+            data /= 100.0
+        elif metric == 'fbc':
+            mu = numpy.loadtxt(mu_path)
+            data *= 0.5 * mu
+        scaled_connectome_path = out_dir / f'{config.id}_{metric}.csv'
+        numpy.savetxt(scaled_connectome_path, data)

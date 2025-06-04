@@ -1,0 +1,23 @@
+0 None 0 0 0 255
+
+# Originally pulled from matplotlib
+# 1 Removed 228 26 27 255
+# 2 Partially_removed 55 126 184 255
+# 3 Unchanged 77 175 74 255
+# 4 AFD_increased 152 78 163 255
+# 5 AFD_decreased 255 127 0 255
+# 6 Lengthened 255 255 51 255
+# 7 Shortened 166 86 40 255
+# 8 Widened 247 129 191 255
+# 9 Thinned 153 153 153 255
+
+1 Removed             1  25  89 255
+2 Partially_removed 250 204 250 255
+3 Unchanged         130 130  49 255
+4 AFD_increased      34  96  97 255
+5 AFD_decreased     241 157 107 255
+6 Lengthened         17  67  96 255
+7 Shortened         253 180 180 255
+8 Widened            77 115  77 255
+9 Thinned           192 144  54 255
+

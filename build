@@ -1,0 +1,193 @@
+#!/usr/bin/bash
+
+# Build phantom images for demonstration of efficacy of FBC measure
+#   in the quantification of longitudinal structural connectivity changes
+# Data for two time points will be generated,
+#   with various changes to the presurgical bundles applied
+
+# Phantom consists of 9 bundles.
+# In the presurgical image,
+#   each bundle is 2 voxels tall and 5 voxels long.
+# Then, in the postsurgical image,
+#   there are different effects applied to each of the 7 bundles:
+# - Complete resection
+# - Partial resection
+#   (50% reduction in cross-section)
+# - Unchanged
+# - Increase in AFD
+# - Decrease in AFD
+# - Increase in length
+# - Decrease in length
+# - Increase in cross-sectional area
+# - Decrease in cross-sectional area
+
+set -e
+
+if [ ! $(which mrcalc) ]; then
+    echo "MRtrix3 not present in PATH"
+    exit 1
+fi
+
+# This is just a trick used to get Bash to produce multiple copies of a string:
+#   the variable is empty, but it is requested to print it some number of times,
+#   and as a result the preceding text (typically a filesystem path)
+#   also gets duplicated that number of itmes
+unset Z
+
+rm -rf tmp/
+mkdir tmp/
+rm -rf phantoms/
+mkdir phantoms/
+
+############
+# FOD data #
+############
+
+mrcalc data/FOD.mif nan -eq tmp/null_1x1x1.mif -quiet
+
+mrcat $(echo tmp/null_1x1x1.mif$Z{1..9}) tmp/null_9x1x1.mif -axis 0 -quiet
+mrcat $(echo tmp/null_9x1x1.mif$Z{1..20}) tmp/null_9x1x20.mif -axis 2 -quiet
+
+# Pre-surgical phantom
+echo "Building pre-surgical FOD image"
+mrcat $(echo tmp/null_1x1x1.mif$Z{1..2}) $(echo data/FOD.mif$Z{1..5}) $(echo tmp/null_1x1x1.mif$Z{1..2}) tmp/AFD1_9x1x1.mif -axis 0 -quiet
+mrcat tmp/null_9x1x1.mif $(echo tmp/AFD1_9x1x1.mif$Z{1..18}) tmp/null_9x1x1.mif tmp/pre_9x1x20.mif -axis 2 -quiet
+mrcat tmp/null_9x1x20.mif tmp/pre_9x1x20.mif tmp/null_9x1x20.mif phantoms/pre_fods.mif -axis 1 -quiet
+mrconvert phantoms/pre_fods.mif -coord 3 0 -axes 0,1,2 - -quiet | \
+    mrcalc - 4 pi -mult -sqrt -mult phantoms/pre_afdtotal.mif -quiet
+
+# Post-surgical phantom
+echo "Building post-surgical FOD image"
+# Increase / decrease in AFD
+mrcalc tmp/AFD1_9x1x1.mif 1.5 -mult tmp/AFD1p5_9x1x1.mif -quiet
+mrcalc tmp/AFD1_9x1x1.mif 0.5 -mult tmp/AFD0p5_9x1x1.mif -quiet
+# Increase / decrease in length
+mrcat tmp/null_1x1x1.mif $(echo data/FOD.mif$Z{1..7}) tmp/null_1x1x1.mif tmp/long_9x1x1.mif -axis 0 -quiet
+mrcat $(echo tmp/null_1x1x1.mif$Z{1..3}) $(echo data/FOD.mif$Z{1..3}) $(echo tmp/null_1x1x1.mif$Z{1..3}) tmp/short_9x1x1.mif -axis 0 -quiet
+# Combine:
+# - 1 null border voxel
+# - 2 null voxels for excised bundle
+# - 1 null voxel for partially excised bundle
+# - 1 voxel with AFD 1.0 for partially excised bundle
+# - 2 voxels for unchanged bundle
+# - 2 voxels with increased AFD
+# - 2 voxels with decreased AFD
+# - 2 voxels with increased length
+# - 2 voxels with decreased length
+# - 3 voxels with AFD 1.0 for increase in width
+# - 1 voxel with AFD 1.0 for decrease in width
+# - 1 null border voxel
+# Note: Reversed order so that in default coronal view bundle 1 is at the top
+mrcat tmp/null_9x1x1.mif $(echo tmp/AFD1_9x1x1.mif$Z{1..4}) $(echo tmp/short_9x1x1.mif$Z{1..2}) $(echo tmp/long_9x1x1.mif$Z{1..2}) $(echo tmp/AFD0p5_9x1x1.mif$Z{1..2}) $(echo tmp/AFD1p5_9x1x1.mif$Z{1..2}) $(echo tmp/AFD1_9x1x1.mif$Z{1..3}) $(echo tmp/null_9x1x1.mif$Z{1..4}) tmp/post_9x1x20.mif -axis 2 -quiet
+mrcat tmp/null_9x1x20.mif tmp/post_9x1x20.mif tmp/null_9x1x20.mif phantoms/post_fods.mif -axis 1 -quiet
+mrconvert phantoms/post_fods.mif -coord 3 0 -axes 0,1,2 - -quiet | \
+    mrcalc - 4 pi -mult -sqrt -mult phantoms/post_afdtotal.mif -quiet
+
+##############
+# 5TT images #
+##############
+
+# TODO Presence of CSF in 5TT images causing undesirable streamline rejection;
+#   re-check interpolation criteria
+# For now, running without ACT seems to be working
+
+mrconvert data/FOD.mif -coord 3 0 -axes 0,1,2 - -quiet | \
+    mrcalc - -finite tmp/one_1x1x1.mif -quiet
+mrcalc tmp/one_1x1x1.mif nan -eq tmp/zero_1x1x1.mif -quiet
+mrcat $(echo tmp/zero_1x1x1.mif$Z{1..9}) tmp/zero_9x1x1.mif -axis 0 -quiet
+mrcat $(echo tmp/zero_9x1x1.mif$Z{1..20}) tmp/zero_9x1x20.mif -axis 2 -quiet
+mrcat $(echo tmp/zero_9x1x20.mif$Z{1..3}) tmp/zero_9x3x20.mif -axis 1 -quiet
+mrcat $(echo tmp/one_1x1x1.mif$Z{1..9}) tmp/one_9x1x1.mif -axis 0 -quiet
+mrcat $(echo tmp/one_9x1x1.mif$Z{1..20}) tmp/one_9x1x20.mif -axis 2 -quiet
+mrcat $(echo tmp/one_9x1x20.mif$Z{1..3}) tmp/one_9x3x20.mif -axis 1 -quiet
+
+# Pre-surgical phantom
+echo "Building pre-surgical 5TT image (unused)"
+# GM image
+mrcat tmp/zero_1x1x1.mif tmp/one_1x1x1.mif $(echo tmp/zero_1x1x1.mif$Z{1..5}) tmp/one_1x1x1.mif tmp/zero_1x1x1.mif tmp/gm_9x1x1.mif -axis 0 -quiet
+mrcat tmp/zero_9x1x1.mif $(echo tmp/gm_9x1x1.mif$Z{1..18}) tmp/zero_9x1x1.mif tmp/pre_gm_9x1x20.mif -axis 2 -quiet
+mrcat tmp/zero_9x1x20.mif tmp/pre_gm_9x1x20.mif tmp/zero_9x1x20.mif tmp/pre_gm_9x3x20.mif -axis 1 -quiet
+# WM image
+mrcat $(echo tmp/zero_1x1x1.mif$Z{1..2}) $(echo tmp/one_1x1x1.mif$Z{1..5}) $(echo tmp/zero_1x1x1.mif$Z{1..2}) tmp/wm_9x1x1.mif -axis 0 -quiet
+mrcat tmp/zero_9x1x1.mif $(echo tmp/wm_9x1x1.mif$Z{1..18}) tmp/zero_9x1x1.mif tmp/pre_wm_9x1x20.mif -axis 2 -quiet
+mrcat tmp/zero_9x1x20.mif tmp/pre_wm_9x1x20.mif tmp/zero_9x1x20.mif tmp/pre_wm_9x3x20.mif -axis 1 -quiet
+# CSF image
+#mrcalc tmp/one_9x3x20.mif tmp/pre_gm_9x3x20.mif -sub tmp/pre_wm_9x3x20.mif -sub tmp/pre_csf_9x3x20.mif -quiet
+# Combine
+#mrcat tmp/pre_gm_9x3x20.mif tmp/zero_9x3x20.mif tmp/pre_wm_9x3x20.mif tmp/pre_csf_9x3x20.mif tmp/zero_9x3x20.mif phantoms/pre_5tt.mif -axis 3 -quiet
+# Version with no CSF
+mrcat tmp/pre_gm_9x3x20.mif tmp/zero_9x3x20.mif tmp/pre_wm_9x3x20.mif $(echo tmp/zero_9x3x20.mif$Z{1..2}) phantoms/pre_5tt.mif -axis 3 -quiet
+
+# Post-surgical phantom
+echo "Building post-surgical 5TT image (unused)"
+# GM image
+mrcat tmp/one_1x1x1.mif $(echo tmp/zero_1x1x1.mif$Z{1..7}) tmp/one_1x1x1.mif tmp/gmlong_9x1x1.mif -axis 0 -quiet
+mrcat $(echo tmp/zero_1x1x1.mif$Z{1..2}) tmp/one_1x1x1.mif $(echo tmp/zero_1x1x1.mif$Z{1..3}) tmp/one_1x1x1.mif $(echo tmp/zero_1x1x1.mif$Z{1..2}) tmp/gmshort_9x1x1.mif -axis 0 -quiet
+mrcat tmp/zero_9x1x1.mif $(echo tmp/gm_9x1x1.mif$Z{1..4}) $(echo tmp/gmshort_9x1x1.mif$Z{1..2}) $(echo tmp/gmlong_9x1x1.mif$Z{1..2}) $(echo tmp/gm_9x1x1.mif$Z{1..7}) $(echo tmp/zero_9x1x1.mif$Z{1..4}) tmp/post_gm_9x1x20.mif -axis 2 -quiet
+mrcat tmp/zero_9x1x20.mif tmp/post_gm_9x1x20.mif tmp/zero_9x1x20.mif tmp/post_gm_9x3x20.mif -axis 1 -quiet
+# WM image
+mrcat tmp/zero_1x1x1.mif $(echo tmp/one_1x1x1.mif$Z{1..7}) tmp/zero_1x1x1.mif tmp/wmlong_9x1x1.mif -axis 0 -quiet
+mrcat $(echo tmp/zero_1x1x1.mif$Z{1..3}) $(echo tmp/one_1x1x1.mif$Z{1..3}) $(echo tmp/zero_1x1x1.mif$Z{1..3}) tmp/wmshort_9x1x1.mif -axis 0 -quiet
+mrcat tmp/zero_9x1x1.mif $(echo tmp/wm_9x1x1.mif$Z{1..4}) $(echo tmp/wmshort_9x1x1.mif$Z{1..2}) $(echo tmp/wmlong_9x1x1.mif$Z{1..2}) $(echo tmp/wm_9x1x1.mif$Z{1..7}) $(echo tmp/zero_9x1x1.mif$Z{1..4}) tmp/post_wm_9x1x20.mif -axis 2 -quiet
+mrcat tmp/zero_9x1x20.mif tmp/post_wm_9x1x20.mif tmp/zero_9x1x20.mif tmp/post_wm_9x3x20.mif -axis 1 -quiet
+# CSF image
+#mrcalc tmp/one_9x3x20.mif tmp/post_gm_9x3x20.mif -sub tmp/post_wm_9x3x20.mif -sub tmp/post_csf_9x3x20.mif -quiet
+# Combine
+#mrcat tmp/post_gm_9x3x20.mif tmp/zero_9x3x20.mif tmp/post_wm_9x3x20.mif tmp/post_csf_9x3x20.mif tmp/zero_9x3x20.mif phantoms/post_5tt.mif -axis 3 -quiet
+# Version with no CSF
+mrcat tmp/post_gm_9x3x20.mif tmp/zero_9x3x20.mif tmp/post_wm_9x3x20.mif $(echo tmp/zero_9x3x20.mif$Z{1..2}) phantoms/post_5tt.mif -axis 3 -quiet
+
+#################
+# Parcellations #
+#################
+
+mrcalc tmp/one_1x1x1.mif 2 -mult tmp/two_1x1x1.mif -quiet
+mrcalc tmp/one_1x1x1.mif 3 -mult tmp/three_1x1x1.mif -quiet
+mrcalc tmp/one_1x1x1.mif 4 -mult tmp/four_1x1x1.mif -quiet
+mrcalc tmp/one_1x1x1.mif 5 -mult tmp/five_1x1x1.mif -quiet
+mrcalc tmp/one_1x1x1.mif 6 -mult tmp/six_1x1x1.mif -quiet
+mrcalc tmp/one_1x1x1.mif 7 -mult tmp/seven_1x1x1.mif -quiet
+mrcalc tmp/one_1x1x1.mif 8 -mult tmp/eight_1x1x1.mif -quiet
+mrcalc tmp/one_1x1x1.mif 9 -mult tmp/nine_1x1x1.mif -quiet
+
+mrcat $(echo tmp/zero_1x1x1.mif$Z{1..20}) tmp/zero_1x1x20.mif -axis 2 -quiet
+
+# Pre-surgical phantom
+echo "Building pre-surgical parcellation image"
+mrcat tmp/zero_1x1x1.mif $(echo tmp/nine_1x1x1.mif$Z{1..2}) $(echo tmp/eight_1x1x1.mif$Z{1..2}) $(echo tmp/seven_1x1x1.mif$Z{1..2}) $(echo tmp/six_1x1x1.mif$Z{1..2}) $(echo tmp/five_1x1x1.mif$Z{1..2}) $(echo tmp/four_1x1x1.mif$Z{1..2}) $(echo tmp/three_1x1x1.mif$Z{1..2}) $(echo tmp/two_1x1x1.mif$Z{1..2}) $(echo tmp/one_1x1x1.mif$Z{1..2}) tmp/zero_1x1x1.mif tmp/pre_labels_1x1x20.mif -axis 2 -quiet
+mrcat tmp/zero_1x1x20.mif tmp/pre_labels_1x1x20.mif $(echo tmp/zero_1x1x20.mif$Z{1..5}) tmp/pre_labels_1x1x20.mif tmp/zero_1x1x20.mif tmp/pre_labels_9x1x20.mif -axis 0 -quiet
+mrcat tmp/zero_9x1x20.mif tmp/pre_labels_9x1x20.mif tmp/zero_9x1x20.mif phantoms/pre_labels.mif -axis 1 -datatype uint32 -quiet
+label2colour phantoms/pre_labels.mif -lut data/lut.txt phantoms/pre_labelrgb.mif -quiet
+
+# Post-surgical phantom
+echo "Building post-surgical parcellation image"
+mrcat tmp/zero_1x1x1.mif tmp/two_1x1x1.mif $(echo tmp/zero_1x1x1.mif$Z{1..5}) tmp/two_1x1x1.mif tmp/zero_1x1x1.mif tmp/two_9x1x1.mif -axis 0 -quiet
+mrcat tmp/zero_1x1x1.mif tmp/three_1x1x1.mif $(echo tmp/zero_1x1x1.mif$Z{1..5}) tmp/three_1x1x1.mif tmp/zero_1x1x1.mif tmp/three_9x1x1.mif -axis 0 -quiet
+mrcat tmp/zero_1x1x1.mif tmp/four_1x1x1.mif $(echo tmp/zero_1x1x1.mif$Z{1..5}) tmp/four_1x1x1.mif tmp/zero_1x1x1.mif tmp/four_9x1x1.mif -axis 0 -quiet
+mrcat tmp/zero_1x1x1.mif tmp/five_1x1x1.mif $(echo tmp/zero_1x1x1.mif$Z{1..5}) tmp/five_1x1x1.mif tmp/zero_1x1x1.mif tmp/five_9x1x1.mif -axis 0 -quiet
+mrcat tmp/six_1x1x1.mif $(echo tmp/zero_1x1x1.mif$Z{1..7}) tmp/six_1x1x1.mif tmp/sixlong_9x1x1.mif -axis 0 -quiet
+mrcat $(echo tmp/zero_1x1x1.mif$Z{1..2}) tmp/seven_1x1x1.mif $(echo tmp/zero_1x1x1.mif$Z{1..3}) tmp/seven_1x1x1.mif $(echo tmp/zero_1x1x1.mif$Z{1..2}) tmp/sevenshort_9x1x1.mif -axis 0 -quiet
+mrcat tmp/zero_1x1x1.mif tmp/eight_1x1x1.mif $(echo tmp/zero_1x1x1.mif$Z{1..5}) tmp/eight_1x1x1.mif tmp/zero_1x1x1.mif tmp/eight_9x1x1.mif -axis 0 -quiet
+mrcat tmp/zero_1x1x1.mif tmp/nine_1x1x1.mif $(echo tmp/zero_1x1x1.mif$Z{1..5}) tmp/nine_1x1x1.mif tmp/zero_1x1x1.mif tmp/nine_9x1x1.mif -axis 0 -quiet
+mrcat tmp/zero_9x1x1.mif tmp/nine_9x1x1.mif $(echo tmp/eight_9x1x1.mif$Z{1..3}) $(echo tmp/sevenshort_9x1x1.mif$Z{1..2}) $(echo tmp/sixlong_9x1x1.mif$Z{1..2}) $(echo tmp/five_9x1x1.mif$Z{1..2}) $(echo tmp/four_9x1x1.mif$Z{1..2}) $(echo tmp/three_9x1x1.mif$Z{1..2}) tmp/two_9x1x1.mif $(echo tmp/zero_9x1x1.mif$Z{1..4}) tmp/post_labels_9x1x20.mif -axis 2 -quiet
+mrcat tmp/zero_9x1x20.mif tmp/post_labels_9x1x20.mif tmp/zero_9x1x20.mif phantoms/post_labels.mif -axis 1 -datatype uint32 -quiet
+label2colour phantoms/post_labels.mif -lut data/lut.txt phantoms/post_labelrgb.mif -quiet
+
+#######################################
+# Additional exports for tractography #
+#######################################
+
+# Pre-surgical phantom
+echo "Building pre-surgical tractography ROIs"
+mrconvert tmp/pre_wm_9x3x20.mif phantoms/pre_wmseed.mif -quiet
+mrcat $(echo tmp/zero_1x1x1.mif$Z{1..2}) tmp/one_1x1x1.mif $(echo tmp/zero_1x1x1.mif$Z{1..3}) tmp/one_1x1x1.mif $(echo tmp/zero_1x1x1.mif$Z{1..2}) tmp/gmseed_9x1x1.mif -axis 0 -quiet
+mrcat tmp/zero_9x1x1.mif $(echo tmp/gmseed_9x1x1.mif$Z{1..18}) tmp/zero_9x1x1.mif tmp/pre_gmseed_9x1x20.mif -axis 2 -quiet
+mrcat tmp/zero_9x1x20.mif tmp/pre_gmseed_9x1x20.mif tmp/zero_9x1x20.mif phantoms/pre_gmseed.mif -axis 1 -quiet
+
+# Post-surgical phantom
+echo "Building post-surgical tractography ROIs"
+mrconvert tmp/post_wm_9x3x20.mif phantoms/post_wmseed.mif -quiet
+mrcat tmp/zero_1x1x1.mif tmp/one_1x1x1.mif $(echo tmp/zero_1x1x1.mif$Z{1..5}) tmp/one_1x1x1.mif tmp/zero_1x1x1.mif tmp/gmseedlong_9x1x1.mif -axis 0 -quiet
+mrcat $(echo tmp/zero_1x1x1.mif$Z{1..3}) tmp/one_1x1x1.mif tmp/zero_1x1x1.mif tmp/one_1x1x1.mif $(echo tmp/zero_1x1x1.mif$Z{1..3}) tmp/gmseedshort_9x1x1.mif -axis 0 -quiet
+mrcat tmp/zero_9x1x1.mif $(echo tmp/gmseed_9x1x1.mif$Z{1..4}) $(echo tmp/gmseedshort_9x1x1.mif$Z{1..2}) $(echo tmp/gmseedlong_9x1x1.mif$Z{1..2}) $(echo tmp/gmseed_9x1x1.mif$Z{1..7}) $(echo tmp/zero_9x1x1.mif$Z{1..4}) tmp/post_gmseed_9x1x20.mif -axis 2 -quiet
+mrcat tmp/zero_9x1x20.mif tmp/post_gmseed_9x1x20.mif tmp/zero_9x1x20.mif phantoms/post_gmseed.mif -axis 1 -quiet

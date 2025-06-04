@@ -1,0 +1,75 @@
+#!/usr/bin/env python3
+
+# Analyse the resulting reconstructions
+#
+# Know from the construction of the phantom:
+#   - The connectivity of each bundle in the pre-op image
+#   - The connectivity of each bundle in the post-op image
+#   - From these, can compute the fractional change w.r.t. the pre-op image
+#
+# Can import the various reconstructions and compare them to these values
+
+import numpy
+import pandas
+import pathlib
+import sys
+#from tabulate import tabulate
+from collections import namedtuple
+
+Configuration = namedtuple('configuration', 'description metric seed_tissue postop_seedcount')
+
+# Omitting data where SIFT2 weights are used but scaling by mu is not performed;
+#   too confusing to communicate
+CONFIGURATIONS = (Configuration('NOS, WM seeding w. fixed total # streamlines', 'nos',     'wm', 'streamlines'),
+                  Configuration('AFD, WM seeding w. fixed total # streamlines', 'meanafd', 'wm', 'streamlines'),
+#                  Configuration('FBC, WM seeding w. fixed total # streamlines', 'sift2',   'wm', 'streamlines'),
+                  Configuration('FBC, WM seeding w. fixed total # streamlines', 'fbc',     'wm', 'streamlines'),
+                  Configuration('NOS, GM seeding w. fixed total # streamlines', 'nos',     'gm', 'streamlines'),
+                  Configuration('AFD, GM seeding w. fixed total # streamlines', 'meanafd', 'gm', 'streamlines'),
+#                  Configuration('FBC, GM seeding w. fixed total # streamlines', 'sift2',   'gm', 'streamlines'),
+                  Configuration('FBC, GM seeding w. fixed total # streamlines', 'fbc',     'gm', 'streamlines'),
+                  Configuration('NOS, WM seeding w. fixed seeds per voxel',     'nos',     'wm', 'seeds'),
+                  Configuration('AFD, WM seeding w. fixed seeds per voxel',     'meanafd', 'wm', 'seeds'),
+#                  Configuration('FBC, WM seeding w. fixed seeds per voxel',     'sift2',   'wm', 'seeds'),
+                  Configuration('FBC, WM seeding w. fixed seeds per voxel',     'fbc',     'wm', 'seeds'),
+                  Configuration('NOS, GM seeding w. fixed seeds per voxel',     'nos',     'gm', 'seeds'),
+                  Configuration('AFD, GM seeding w. fixed seeds per voxel',     'meanafd', 'gm', 'seeds'),
+#                  Configuration('FBC, GM seeding w. fixed seeds per voxel',     'sift2',   'gm', 'seeds'),
+                  Configuration('FBC, GM seeding w. fixed seeds per voxel',     'fbc',     'gm', 'seeds'))
+
+#COLUMNS = ['preop', 'postop', 'fractional_change']
+
+# Bundle effects in order:
+# 1. Completely removed
+# 2. 50% removed
+# 3. Unchanged
+# 4. AFD increased from 1.0 to 1.5
+# 5. AFD decreased from 1.0 to 0.5
+# 6. Lengthened
+# 7. Shortened
+# 8. Cross-section increased from 2mm to 3mm
+# 9. Cross-section decreased from 2mm to 1mm
+in_dir = pathlib.Path('connectomes')
+if not in_dir.is_dir():
+    sys.stderr.write('Required input directory "connectomes/" does not exist; '
+                     'must run command "recon" before "tabulate"\n')
+    sys.exit(1)
+
+GT_PREOP = [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+GT_POSTOP = [0.0, 0.5, 1.0, 1.5, 0.5, 1.0, 1.0, 1.5, 0.5]
+GT_BOTH = {'gt_preop': GT_PREOP,
+           'gt_postop': GT_POSTOP}
+data = pandas.DataFrame(data=GT_BOTH)
+data['gt_perc'] = 100.0 * (data['gt_postop'] - data['gt_preop']) / data['gt_preop']
+
+for config in CONFIGURATIONS:
+    preop_connectome_path = in_dir / f'pre_{config.seed_tissue}_{config.metric}.csv'
+    preop_connectome_data = numpy.loadtxt(preop_connectome_path, delimiter=',')
+    postop_connectome_path = in_dir / f'post_{config.seed_tissue}_{config.postop_seedcount}_{config.metric}.csv'
+    postop_connectome_data = numpy.loadtxt(postop_connectome_path, delimiter=',')
+    #data[f'{config.metric}_{config.seed_tissue}_{config.postop_seedcount}_preop'] = preop_connectome_data
+    #data[f'{config.metric}_{config.seed_tissue}_{config.postop_seedcount}_postop'] = postop_connectome_data
+    data[f'{config.metric}_{config.seed_tissue}_{config.postop_seedcount}'] = 100.0 * (postop_connectome_data - preop_connectome_data) / preop_connectome_data
+
+#sys.stderr.write(str(data.T) + '\n')
+sys.stderr.write(data.T.to_latex(float_format="%.3f") + '\n')
