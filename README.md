@@ -4,7 +4,7 @@ R.E. Smith, P. Pruckner, D.F. Abbott.
 
 Longitudinal quantification of Fibre Bundle Capacity addresses structural connectivity biases in surgical resection cohorts.
 
-https://osf.io/evsb2_v1
+Brain, Volume 149, Issue 2, February 2026, Pages e8–e10.
 
 ## Prerequisites
 
